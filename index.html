@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Спасение Земли - Пиксельная игра</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+            text-align: center;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            margin: 20px auto;
+            background-color: #000;
+            border: 4px solid #fff;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+        
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+        
+        #loading-screen, #start-screen, #game-over, #dialog-box {
+            position: absolute;
+            background-color: #000;
+            z-index: 100;
+        }
+        
+        #loading-screen, #start-screen, #game-over {
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #game-over, #dialog-box {
+            display: none;
+        }
+        
+        #dialog-box {
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border-top: 4px solid #fff;
+            padding: 10px;
+            text-align: left;
+            font-size: 18px;
+            line-height: 1.4;
+        }
+        
+        #dialog-portrait {
+            float: left;
+            width: 100px;
+            height: 100px;
+            margin-right: 10px;
+            border: 2px solid #fff;
+            background-color: #333;
+        }
+        
+        #dialog-name {
+            color: #ff0;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        #dialog-text {
+            color: #fff;
+        }
+        
+        #game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            text-align: left;
+        }
+        
+        h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #fff;
+            text-shadow: 4px 4px 0 #f00;
+        }
+        
+        p {
+            font-size: 16px;
+            margin-bottom: 20px;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.5;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #f00;
+            border: 4px solid #fff;
+            color: white;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin-top: 20px;
+        }
+        
+        button:hover {
+            background-color: #ff5555;
+        }
+        
+        #instructions {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+        
+        <!-- Loading Screen -->
+        <div id="loading-screen">
+            <h1>ЗАГРУЗКА...</h1>
+            <div id="loading-progress">0%</div>
+        </div>
+        
+        <!-- Start Screen -->
+        <div id="start-screen" style="display: none;">
+            <h1>СПАСЕНИЕ ЗЕМЛИ</h1>
+            <p>Обычный день обычного человека превращается в невероятное приключение, когда его вызывают спасти Землю от надвигающегося метеорита!</p>
+            <button id="start-button">НАЧАТЬ ИГРУ</button>
+            <div id="instructions">
+                Управление: СТРЕЛКИ - движение, ПРОБЕЛ - действие/атака, E - взаимодействие
+            </div>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="game-over">
+            <h1 id="game-over-title">КОНЕЦ ИГРЫ</h1>
+            <p id="game-over-message">Вы не смогли спасти Землю...</p>
+            <button id="restart-button">НАЧАТЬ ЗАНОВО</button>
+        </div>
+        
+        <!-- Dialog Box -->
+        <div id="dialog-box">
+            <div id="dialog-portrait"></div>
+            <div id="dialog-name">Имя</div>
+            <div id="dialog-text">Текст диалога...</div>
+        </div>
+        
+        <!-- Game UI -->
+        <div id="game-ui">
+            <div id="health">ЗДОРОВЬЕ: ❤️❤️❤️</div>
+            <div id="weapon">ОРУЖИЕ: Кулаки</div>
+            <div id="mission">МИССИЯ: Проснуться</div>
+        </div>
+    </div>
+
+    <script>
+        // Константы и переменные игры
+        const TILE_SIZE = 32; // Размер тайла в пикселях
+        const PLAYER_SPEED = 3; // Скорость игрока
+        const GRAVITY = 0.5; // Сила гравитации
+        const JUMP_FORCE = 10; // Сила прыжка
+        
+        // Состояние игры
+        let gameState = "loading"; // loading, start, play, dialog, cutscene, gameover
+        let currentLevel = 0;
+        let playerHealth = 3;
+        let currentWeapon = "Кулаки";
+        let currentMission = "Проснуться";
+        let playerFacing = "right"; // Направление игрока
+        let playerFrame = 0; // Текущий кадр анимации
+        let animationCounter = 0; // Счетчик для анимации
+        let isJumping = false;
+        let isFalling = false;
+        let isAttacking = false;
+        let attackTimer = 0;
+        let dialogQueue = []; // Очередь диалогов
+        let currentDialog = null; // Текущий диалог
+        let dialogCharIndex = 0; // Индекс символа для эффекта печатания
+        let dialogSpeed = 2; // Скорость печатания (символов за кадр)
+        
+        // Получаем элементы DOM
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingProgress = document.getElementById('loading-progress');
+        const startScreen = document.getElementById('start-screen');
+        const startButton = document.getElementById('start-button');
+        const gameOverScreen = document.getElementById('game-over');
+        const gameOverTitle = document.getElementById('game-over-title');
+        const gameOverMessage = document.getElementById('game-over-message');
+        const restartButton = document.getElementById('restart-button');
+        const dialogBox = document.getElementById('dialog-box');
+        const dialogPortrait = document.getElementById('dialog-portrait');
+        const dialogName = document.getElementById('dialog-name');
+        const dialogText = document.getElementById('dialog-text');
+        const healthDisplay = document.getElementById('health');
+        const weaponDisplay = document.getElementById('weapon');
+        const missionDisplay = document.getElementById('mission');
+        
+        // Объекты игры
+        let player = {
+            x: 400,
+            y: 300,
+            width: 32,
+            height: 48,
+            velocityX: 0,
+            velocityY: 0,
+            isMovingLeft: false,
+            isMovingRight: false,
+            isMovingUp: false,
+            isMovingDown: false,
+            isInteracting: false,
+            isAttacking: false
+        };
+        
+        // Создаем SVG-спрайты для персонажей и объектов
+        const sprites = {};
+        
+        // Функция для создания SVG-спрайта
+        function createSVGSprite(id, width, height, content) {
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("id", id);
+            svg.setAttribute("width", width);
+            svg.setAttribute("height", height);
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            svg.innerHTML = content;
+            document.body.appendChild(svg);
+            
+            // Создаем изображение из SVG
+            const img = new Image();
+            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+            
+            // Удаляем SVG из DOM
+            document.body.removeChild(svg);
+            
+            return img;
+        }
+        
+        // Создаем спрайты персонажей
+        function createCharacterSprites() {
+            // Игрок - стоит
+            sprites.playerIdle = createSVGSprite("player-idle", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#3333ff" /> <!-- Тело -->
+                <rect x="6" y="36" width="8" height="12" fill="#663300" /> <!-- Левая нога -->
+                <rect x="18" y="36" width="8" height="12" fill="#663300" /> <!-- Правая нога -->
+                <rect x="0" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука -->
+                <rect x="26" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука -->
+            `);
+            
+            // Игрок - ходит (кадр 1)
+            sprites.playerWalk1 = createSVGSprite("player-walk1", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#3333ff" /> <!-- Тело -->
+                <rect x="10" y="36" width="8" height="12" fill="#663300" /> <!-- Левая нога (вперед) -->
+                <rect x="18" y="36" width="8" height="12" fill="#663300" /> <!-- Правая нога -->
+                <rect x="0" y="20" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука (назад) -->
+                <rect x="26" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука (вперед) -->
+            `);
+            
+            // Игрок - ходит (кадр 2)
+            sprites.playerWalk2 = createSVGSprite("player-walk2", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#3333ff" /> <!-- Тело -->
+                <rect x="6" y="36" width="8" height="12" fill="#663300" /> <!-- Левая нога -->
+                <rect x="14" y="36" width="8" height="12" fill="#663300" /> <!-- Правая нога (вперед) -->
+                <rect x="0" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука (вперед) -->
+                <rect x="26" y="20" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука (назад) -->
+            `);
+            
+            // Игрок - прыжок
+            sprites.playerJump = createSVGSprite("player-jump", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#3333ff" /> <!-- Тело -->
+                <rect x="6" y="36" width="8" height="8" fill="#663300" /> <!-- Левая нога (согнута) -->
+                <rect x="18" y="36" width="8" height="8" fill="#663300" /> <!-- Правая нога (согнута) -->
+                <rect x="0" y="12" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука (вверх) -->
+                <rect x="26" y="12" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука (вверх) -->
+            `);
+            
+            // Игрок - атака
+            sprites.playerAttack = createSVGSprite("player-attack", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#3333ff" /> <!-- Тело -->
+                <rect x="6" y="36" width="8" height="12" fill="#663300" /> <!-- Левая нога -->
+                <rect x="18" y="36" width="8" height="12" fill="#663300" /> <!-- Правая нога -->
+                <rect x="0" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука -->
+                <rect x="26" y="12" width="12" height="6" fill="#ffcc99" /> <!-- Правая рука (вытянута) -->
+                <rect x="38" y="12" width="8" height="6" fill="#ff0000" /> <!-- Оружие -->
+            `);
+            
+            // Босс - метеорит
+            sprites.bossMeteor = createSVGSprite("boss-meteor", 64, 64, `
+                <circle cx="32" cy="32" r="30" fill="#aa3300" /> <!-- Основа метеорита -->
+                <circle cx="20" cy="20" r="8" fill="#661100" /> <!-- Кратер 1 -->
+                <circle cx="40" cy="30" r="10" fill="#661100" /> <!-- Кратер 2 -->
+                <circle cx="25" cy="45" r="6" fill="#661100" /> <!-- Кратер 3 -->
+                <path d="M 10,10 L 15,5 L 20,12 L 15,15 Z" fill="#ffcc00" /> <!-- Огонь 1 -->
+                <path d="M 50,15 L 55,10 L 60,18 L 52,20 Z" fill="#ffcc00" /> <!-- Огонь 2 -->
+                <path d="M 30,5 L 35,0 L 40,8 L 32,10 Z" fill="#ffcc00" /> <!-- Огонь 3 -->
+            `);
+            
+            // Спрайт для кровати
+            sprites.bed = createSVGSprite("bed", 64, 32, `
+                <rect x="0" y="20" width="64" height="12" fill="#663300" /> <!-- Каркас кровати -->
+                <rect x="4" y="8" width="56" height="12" fill="#cccccc" /> <!-- Матрас -->
+                <rect x="4" y="0" width="16" height="8" fill="#ffffff" /> <!-- Подушка -->
+            `);
+            
+            // Спрайт для стола
+            sprites.desk = createSVGSprite("desk", 64, 32, `
+                <rect x="0" y="20" width="64" height="12" fill="#663300" /> <!-- Столешница -->
+                <rect x="4" y="32" width="8" height="16" fill="#663300" /> <!-- Ножка 1 -->
+                <rect x="52" y="32" width="8" height="16" fill="#663300" /> <!-- Ножка 2 -->
+                <rect x="10" y="10" width="16" height="10" fill="#0000ff" /> <!-- Компьютер -->
+                <rect x="40" y="15" width="10" height="5" fill="#ffffff" /> <!-- Бумаги -->
+            `);
+            
+            // Спрайт для двери
+            sprites.door = createSVGSprite("door", 32, 64, `
+                <rect x="0" y="0" width="32" height="64" fill="#663300" /> <!-- Дверь -->
+                <circle cx="24" cy="32" r="3" fill="#ffcc00" /> <!-- Ручка -->
+            `);
+            
+            // Спрайт для начальника
+            sprites.boss = createSVGSprite("boss", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff0000" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#333333" /> <!-- Тело (костюм) -->
+                <rect x="13" y="16" width="6" height="20" fill="#ff0000" /> <!-- Галстук -->
+                <rect x="6" y="36" width="8" height="12" fill="#000000" /> <!-- Левая нога -->
+                <rect x="18" y="36" width="8" height="12" fill="#000000" /> <!-- Правая нога -->
+                <rect x="0" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука -->
+                <rect x="26" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука -->
+            `);
+            
+            // Спрайт для ученого
+            sprites.scientist = createSVGSprite("scientist", 32, 48, `
+                <rect x="8" y="0" width="16" height="16" fill="#000000" /> <!-- Голова -->
+                <rect x="10" y="2" width="4" height="4" fill="#ffffff" /> <!-- Левый глаз -->
+                <rect x="18" y="2" width="4" height="4" fill="#ffffff" /> <!-- Правый глаз -->
+                <rect x="12" y="10" width="8" height="2" fill="#ff6666" /> <!-- Рот -->
+                <rect x="6" y="16" width="20" height="20" fill="#ffffff" /> <!-- Тело (халат) -->
+                <rect x="6" y="36" width="8" height="12" fill="#000000" /> <!-- Левая нога -->
+                <rect x="18" y="36" width="8" height="12" fill="#000000" /> <!-- Правая нога -->
+                <rect x="0" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Левая рука -->
+                <rect x="26" y="16" width="6" height="8" fill="#ffcc99" /> <!-- Правая рука -->
+                <rect x="8" y="4" width="16" height="4" fill="#ffffff" /> <!-- Очки -->
+            `);
+            
+            // Спрайт для оружия - бластер
+            sprites.blaster = createSVGSprite("blaster", 32, 16, `
+                <rect x="0" y="4" width="20" height="8" fill="#333333" /> <!-- Ствол -->
+                <rect x="20" y="0" width="12" height="16" fill="#666666" /> <!-- Рукоятка -->
+                <circle cx="24" cy="8" r="4" fill="#ff0000" /> <!-- Кнопка -->
+            `);
+            
+            // Спрайт для фона - комната
+            sprites.roomBackground = createSVGSprite("room-background", 800, 600, `
+                <rect x="0" y="0" width="800" height="600" fill="#cccccc" /> <!-- Стены -->
+                <rect x="0" y="450" width="800" height="150" fill="#663300" /> <!-- Пол -->
+                <rect x="100" y="100" width="100" height="100" fill="#6699ff" /> <!-- Окно -->
+                <rect x="600" y="200" width="100" height="100" fill="#6699ff" /> <!-- Окно 2 -->
+            `);
+            
+            // Спрайт для фона - офис
+            sprites.officeBackground = createSVGSprite("office-background", 800, 600, `
+                <rect x="0" y="0" width="800" height="600" fill="#f0f0f0" /> <!-- Стены -->
+                <rect x="0" y="450" width="800" height="150" fill="#999999" /> <!-- Пол -->
+                <rect x="100" y="100" width="600" height="20" fill="#333333" /> <!-- Верхняя панель -->
+                <rect x="100" y="120" width="600" height="2" fill="#666666" /> <!-- Тень панели -->
+                <rect x="150" y="150" width="200" height="100" fill="#ffffff" /> <!-- Экран 1 -->
+                <rect x="450" y="150" width="200" height="100" fill="#ffffff" /> <!-- Экран 2 -->
+            `);
+            
+            // Спрайт для фона - лаборатория
+            sprites.labBackground = createSVGSprite("lab-background", 800, 600, `
+                <rect x="0" y="0" width="800" height="600" fill="#ffffff" /> <!-- Стены -->
+                <rect x="0" y="450" width="800" height="150" fill="#cccccc" /> <!-- Пол -->
+                <rect x="100" y="100" width="200" height="200" fill="#99ccff" /> <!-- Компьютер -->
+                <rect x="400" y="150" width="100" height="200" fill="#33cc33" /> <!-- Колба 1 -->
+                <rect x="550" y="150" width="100" height="200" fill="#cc33cc" /> <!-- Колба 2 -->
+            `);
+            
+            // Спрайт для фона - космос
+            sprites.spaceBackground = createSVGSprite("space-background", 800, 600, `
+                <rect x="0" y="0" width="800" height="600" fill="#000033" /> <!-- Космос -->
+                <circle cx="100" cy="100" r="2" fill="#ffffff" /> <!-- Звезда 1 -->
+                <circle cx="200" cy="150" r="1" fill="#ffffff" /> <!-- Звезда 2 -->
+                <circle cx="300" cy="200" r="3" fill="#ffffff" /> <!-- Звезда 3 -->
+                <circle cx="400" cy="50" r="2" fill="#ffffff" /> <!-- Звезда 4 -->
+                <circle cx="500" cy="300" r="1" fill="#ffffff" /> <!-- Звезда 5 -->
+                <circle cx="600" cy="250" r="2" fill="#ffffff" /> <!-- Звезда 6 -->
+                <circle cx="700" cy="150" r="1" fill="#ffffff" /> <!-- Звезда 7 -->
+                <circle cx="750" cy="400" r="3" fill="#ffffff" /> <!-- Звезда 8 -->
+                <circle cx="50" cy="350" r="2" fill="#ffffff" /> <!-- Звезда 9 -->
+                <circle cx="250" cy="450" r="1" fill="#ffffff" /> <!-- Звезда 10 -->
+                <circle cx="650" cy="100" r="100" fill="#6666ff" /> <!-- Земля -->
+                <circle cx="650" cy="100" r="30" fill="#33cc33" /> <!-- Континент -->
+            `);
+        }
+        
+        // Определение уровней игры
+        const levels = [
+            // Уровень 0: Спальня (начало игры)
+            {
+                background: "roomBackground",
+                objects: [
+                    { type: "bed", x: 300, y: 400, width: 64, height: 32, interactive: true },
+                    { type: "desk", x: 500, y: 400, width: 64, height: 32, interactive: true },
+                    { type: "door", x: 700, y: 386, width: 32, height: 64, interactive: true, leadsTo: 1 }
+                ],
+                npcs: [],
+                startX: 350,
+                startY: 400,
+                introDialog: [
+                    { name: "Рассказчик", portrait: null, text: "Обычное утро обычного человека. Ничто не предвещало беды..." },
+                    { name: "Вы", portrait: "playerIdle", text: "*зевает* Еще пять минут..." }
+                ]
+            },
+            // Уровень 1: Офис (получение задания)
+            {
+                background: "officeBackground",
+                objects: [
+                    { type: "desk", x: 300, y: 400, width: 64, height: 32, interactive: true },
+                    { type: "door", x: 100, y: 386, width: 32, height: 64, interactive: true, leadsTo: 0 },
+                    { type: "door", x: 700, y: 386, width: 32, height: 64, interactive: true, leadsTo: 2 }
+                ],
+                npcs: [
+                    { type: "boss", x: 400, y: 400, width: 32, height: 48, interactive: true, dialog: [
+                        { name: "Начальник", portrait: "boss", text: "А, вот и вы! У нас чрезвычайная ситуация!" },
+                        { name: "Вы", portrait: "playerIdle", text: "Что случилось?" },
+                        { name: "Начальник", portrait: "boss", text: "К Земле приближается гигантский метеорит! Только вы можете спасти нас!" },
+                        { name: "Вы", portrait: "playerIdle", text: "Я? Но я же обычный офисный работник..." },
+                        { name: "Начальник", portrait: "boss", text: "Не скромничайте! Отправляйтесь в лабораторию, ученые всё объяснят." },
+                        { name: "Вы", portrait: "playerIdle", text: "Ладно, я сделаю всё возможное!" }
+                    ]}
+                ],
+                startX: 150,
+                startY: 400,
+                introDialog: [
+                    { name: "Рассказчик", portrait: null, text: "Вас срочно вызвали в офис..." }
+                ]
+            },
+            // Уровень 2: Лаборатория (получение оружия)
+            {
+                background: "labBackground",
+                objects: [
+                    { type: "desk", x: 200, y: 400, width: 64, height: 32, interactive: true },
+                    { type: "blaster", x: 300, y: 400, width: 32, height: 16, interactive: true, isCollectible: true },
+                    { type: "door", x: 100, y: 386, width: 32, height: 64, interactive: true, leadsTo: 1 },
+                    { type: "door", x: 700, y: 386, width: 32, height: 64, interactive: true, leadsTo: 3 }
+                ],
+                npcs: [
+                    { type: "scientist", x: 500, y: 400, width: 32, height: 48, interactive: true, dialog: [
+                        { name: "Ученый", portrait: "scientist", text: "На Землю летит метеорит! Мы создали специальное оружие для его уничтожения." },
+                        { name: "Вы", portrait: "playerIdle", text: "И вы хотите, чтобы я использовал его?" },
+                        { name: "Ученый", portrait: "scientist", text: "Именно! Возьмите бластер со стола. Он стреляет концентрированной антиматерией." },
+                        { name: "Ученый", portrait: "scientist", text: "Вам нужно добраться до космической станции и оттуда атаковать метеорит." },
+                        { name: "Вы", portrait: "playerIdle", text: "Я сделаю всё возможное!" }
+                    ]}
+                ],
+                startX: 150,
+                startY: 400,
+                introDialog: [
+                    { name: "Рассказчик", portrait: null, text: "В лаборатории вас ждут ученые с важной информацией..." }
+                ]
+            },
+            // Уровень 3: Космос (финальная битва с метеоритом)
+            {
+                background: "spaceBackground",
+                objects: [],
+                npcs: [
+                    { type: "bossMeteor", x: 400, y: 200, width: 64, height: 64, interactive: false, isBoss: true, health: 10 }
+                ],
+                startX: 400,
+                startY: 400,
+                introDialog: [
+                    { name: "Рассказчик", portrait: null, text: "Вы достигли космической станции. Перед вами - огромный метеорит, угрожающий Земле!" },
+                    { name: "Вы", portrait: "playerIdle", text: "Пришло время спасти нашу планету!" }
+                ]
+            }
+        ];
+        
+        // Инициализация игры
+        function init() {
+            // Создаем спрайты
+            createCharacterSprites();
+            
+            // Симулируем загрузку
+            simulateLoading();
+            
+            // Добавляем обработчики событий
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            startButton.addEventListener('click', startGame);
+            restartButton.addEventListener('click', restartGame);
+            
+            // Запускаем игровой цикл
+            gameLoop();
+        }
+        
+        // Симуляция загрузки
+        function simulateLoading() {
+            let progress = 0;
+            const loadingInterval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(loadingInterval);
+                    loadingProgress.textContent = '100%';
+                    setTimeout(() => {
+                        loadingScreen.style.display = 'none';
+                        startScreen.style.display = 'flex';
+                        gameState = "start";
+                    }, 500);
+                } else {
+                    loadingProgress.textContent = Math.floor(progress) + '%';
+                }
+            }, 200);
+        }
+        
+        // Обработка нажатия клавиш
+        function handleKeyDown(e) {
+            if (gameState === "dialog") {
+                // В режиме диалога пробел продвигает диалог
+                if (e.code === "Space") {
+                    advanceDialog();
+                }
+                return;
+            }
+            
+            if (gameState !== "play") return;
+            
+            switch (e.code) {
+                case "ArrowLeft":
+                    player.isMovingLeft = true;
+                    playerFacing = "left";
+                    break;
+                case "ArrowRight":
+                    player.isMovingRight = true;
+                    playerFacing = "right";
+                    break;
+                case "ArrowUp":
+                    if (!isJumping && !isFalling) {
+                        isJumping = true;
+                        player.velocityY = -JUMP_FORCE;
+                    }
+                    break;
+                case "Space":
+                    if (!isAttacking) {
+                        isAttacking = true;
+                        attackTimer = 20; // Длительность анимации атаки
+                    }
+                    break;
+                case "KeyE":
+                    player.isInteracting = true;
+                    checkInteractions();
+                    break;
+            }
+        }
+        
+        // Обработка отпускания клавиш
+        function handleKeyUp(e) {
+            if (gameState !== "play") return;
+            
+            switch (e.code) {
+                case "ArrowLeft":
+                    player.isMovingLeft = false;
+                    break;
+                case "ArrowRight":
+                    player.isMovingRight = false;
+                    break;
+                case "KeyE":
+                    player.isInteracting = false;
+                    break;
+            }
+        }
+        
+        // Начало игры
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameState = "play";
+            
+            // Загружаем первый уровень
+            loadLevel(0);
+        }
+        
+        // Перезапуск игры
+        function restartGame() {
+            gameOverScreen.style.display = 'none';
+            gameState = "play";
+            
+            // Сбрасываем состояние игры
+            playerHealth = 3;
+            currentWeapon = "Кулаки";
+            currentMission = "Проснуться";
+            updateUI();
+            
+            // Загружаем первый уровень
+            loadLevel(0);
+        }
+        
+        // Загрузка уровня
+        function loadLevel(levelIndex) {
+            currentLevel = levelIndex;
+            const level = levels[levelIndex];
+            
+            // Устанавливаем позицию игрока
+            player.x = level.startX;
+            player.y = level.startY;
+            player.velocityX = 0;
+            player.velocityY = 0;
+            
+            // Обновляем миссию
+            switch(levelIndex) {
+                case 0:
+                    currentMission = "Проснуться и выйти из комнаты";
+                    break;
+                case 1:
+                    currentMission = "Поговорить с начальником";
+                    break;
+                case 2:
+                    currentMission = "Получить оружие и инструкции";
+                    break;
+                case 3:
+                    currentMission = "Уничтожить метеорит";
+                    break;
+            }
+            
+            updateUI();
+            
+            // Показываем вступительный диалог уровня
+            if (level.introDialog && level.introDialog.length > 0) {
+                showDialog(level.introDialog);
+            }
+        }
+        
+        // Показать диалог
+        function showDialog(dialogData) {
+            gameState = "dialog";
+            dialogQueue = dialogData;
+            dialogCharIndex = 0;
+            
+            // Показываем первую реплику
+            currentDialog = dialogQueue.shift();
+            dialogName.textContent = currentDialog.name;
+            dialogText.textContent = "";
+            
+            if (currentDialog.portrait) {
+                dialogPortrait.style.backgroundImage = `url(${sprites[currentDialog.portrait].src})`;
+                dialogPortrait.style.display = "block";
+            } else {
+                dialogPortrait.style.display = "none";
+            }
+            
+            dialogBox.style.display = "block";
+        }
+        
+        // Продвинуть диалог
+        function advanceDialog() {
+            // Если текст еще печатается, показываем его полностью
+            if (dialogCharIndex < currentDialog.text.length) {
+                dialogCharIndex = currentDialog.text.length;
+                dialogText.textContent = currentDialog.text;
+                return;
+            }
+            
+            // Если в очереди есть еще реплики, показываем следующую
+            if (dialogQueue.length > 0) {
+                currentDialog = dialogQueue.shift();
+                dialogName.textContent = currentDialog.name;
+                dialogText.textContent = "";
+                dialogCharIndex = 0;
+                
+                if (currentDialog.portrait) {
+                    dialogPortrait.style.backgroundImage = `url(${sprites[currentDialog.portrait].src})`;
+                    dialogPortrait.style.display = "block";
+                } else {
+                    dialogPortrait.style.display = "none";
+                }
+            } else {
+                // Диалог закончен
+                dialogBox.style.display = "none";
+                gameState = "play";
+            }
+        }
+        
+        // Обновление текста диалога (эффект печатания)
+        function updateDialogText() {
+            if (gameState !== "dialog" || !currentDialog) return;
+            
+            if (dialogCharIndex < currentDialog.text.length) {
+                dialogCharIndex += dialogSpeed;
+                if (dialogCharIndex > currentDialog.text.length) {
+                    dialogCharIndex = currentDialog.text.length;
+                }
+                dialogText.textContent = currentDialog.text.substring(0, dialogCharIndex);
+            }
+        }
+        
+        // Проверка взаимодействий с объектами и NPC
+        function checkInteractions() {
+            const level = levels[currentLevel];
+            
+            // Проверяем взаимодействие с объектами
+            for (const obj of level.objects) {
+                if (obj.interactive && isColliding(player, obj)) {
+                    // Если это дверь, переходим на другой уровень
+                    if (obj.type === "door" && obj.leadsTo !== undefined) {
+                        loadLevel(obj.leadsTo);
+                        return;
+                    }
+                    
+                    // Если это предмет, который можно подобрать
+                    if (obj.isCollectible) {
+                        if (obj.type === "blaster") {
+                            currentWeapon = "Бластер";
+                            // Удаляем предмет из уровня
+                            const index = level.objects.indexOf(obj);
+                            if (index > -1) {
+                                level.objects.splice(index, 1);
+                            }
+                            updateUI();
+                        }
+                    }
+                }
+            }
+            
+            // Проверяем взаимодействие с NPC
+            for (const npc of level.npcs) {
+                if (npc.interactive && isColliding(player, npc)) {
+                    if (npc.dialog && npc.dialog.length > 0) {
+                        showDialog(npc.dialog.slice()); // Создаем копию массива диалогов
+                    }
+                }
+            }
+        }
+        
+        // Проверка столкновения двух объектов
+        function isColliding(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+        
+        // Обновление UI
+        function updateUI() {
+            // Обновляем здоровье
+            let healthText = "ЗДОРОВЬЕ: ";
+            for (let i = 0; i < playerHealth; i++) {
+                healthText += "❤️";
+            }
+            healthDisplay.textContent = healthText;
+            
+            // Обновляем оружие
+            weaponDisplay.textContent = "ОРУЖИЕ: " + currentWeapon;
+            
+            // Обновляем миссию
+            missionDisplay.textContent = "МИССИЯ: " + currentMission;
+        }
+        
+        // Обновление состояния игрока
+        function updatePlayer() {
+            if (gameState !== "play") return;
+            
+            // Движение по горизонтали
+            if (player.isMovingLeft) {
+                player.velocityX = -PLAYER_SPEED;
+            } else if (player.isMovingRight) {
+                player.velocityX = PLAYER_SPEED;
+            } else {
+                player.velocityX = 0;
+            }
+            
+            // Применяем гравитацию
+            player.velocityY += GRAVITY;
+            
+            // Обновляем позицию
+            player.x += player.velocityX;
+            player.y += player.velocityY;
+            
+            // Проверяем границы экрана
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            
+            // Проверяем пол
+            if (player.y > canvas.height - player.height - 50) {
+                player.y = canvas.height - player.height - 50;
+                player.velocityY = 0;
+                isJumping = false;
+                isFalling = false;
+            }
+            
+            // Обновляем анимацию
+            animationCounter++;
+            if (animationCounter >= 10) {
+                animationCounter = 0;
+                playerFrame = (playerFrame + 1) % 2;
+            }
+            
+            // Обновляем таймер атаки
+            if (isAttacking) {
+                attackTimer--;
+                if (attackTimer <= 0) {
+                    isAttacking = false;
+                }
+            }
+            
+            // Проверяем атаку по боссу
+            if (isAttacking && currentLevel === 3) {
+                const boss = levels[3].npcs.find(npc => npc.isBoss);
+                if (boss && isColliding(player, boss)) {
+                    boss.health--;
+                    
+                    // Если босс побежден
+                    if (boss.health <= 0) {
+                        gameOver(true);
+                    }
+                }
+            }
+        }
+        
+        // Рисуем игрока
+        function drawPlayer() {
+            let sprite;
+            
+            if (isAttacking) {
+                sprite = sprites.playerAttack;
+            } else if (isJumping || isFalling) {
+                sprite = sprites.playerJump;
+            } else if (player.velocityX !== 0) {
+                sprite = playerFrame === 0 ? sprites.playerWalk1 : sprites.playerWalk2;
+            } else {
+                sprite = sprites.playerIdle;
+            }
+            
+            // Отражаем спрайт по горизонтали, если игрок смотрит влево
+            ctx.save();
+            if (playerFacing === "left") {
+                ctx.translate(player.x + player.width, player.y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(sprite, 0, 0, player.width, player.height);
+            } else {
+                ctx.drawImage(sprite, player.x, player.y, player.width, player.height);
+            }
+            ctx.restore();
+        }
+        
+        // Рисуем уровень
+        function drawLevel() {
+            const level = levels[currentLevel];
+            
+            // Рисуем фон
+            ctx.drawImage(sprites[level.background], 0, 0, canvas.width, canvas.height);
+            
+            // Рисуем объекты
+            for (const obj of level.objects) {
+                ctx.drawImage(sprites[obj.type], obj.x, obj.y, obj.width, obj.height);
+            }
+            
+            // Рисуем NPC
+            for (const npc of level.npcs) {
+                ctx.drawImage(sprites[npc.type], npc.x, npc.y, npc.width, npc.height);
+                
+                // Если это босс, рисуем полоску здоровья
+                if (npc.isBoss) {
+                    const healthPercentage = npc.health / 10;
+                    
+                    // Фон полоски здоровья
+                    ctx.fillStyle = "#333333";
+                    ctx.fillRect(300, 50, 200, 20);
+                    
+                    // Полоска здоровья
+                    ctx.fillStyle = "#ff0000";
+                    ctx.fillRect(300, 50, 200 * healthPercentage, 20);
+                    
+                    // Рамка
+                    ctx.strokeStyle = "#ffffff";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(300, 50, 200, 20);
+                    
+                    // Текст
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "16px 'Courier New', monospace";
+                    ctx.textAlign = "center";
+                    ctx.fillText("МЕТЕОРИТ", 400, 40);
+                }
+            }
+        }
+        
+        // Основной игровой цикл
+        function gameLoop() {
+            // Очищаем холст
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Обновляем и рисуем в зависимости от состояния игры
+            if (gameState === "play") {
+                updatePlayer();
+                drawLevel();
+                drawPlayer();
+            } else if (gameState === "dialog") {
+                drawLevel();
+                drawPlayer();
+                updateDialogText();
+            }
+            
+            // Запрашиваем следующий кадр
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Конец игры
+        function gameOver(isVictory) {
+            gameState = "gameover";
+            
+            if (isVictory) {
+                gameOverTitle.textContent = "ПОБЕДА!";
+                gameOverMessage.textContent = "Вы спасли Землю от метеорита! Человечество будет вечно благодарно вам!";
+            } else {
+                gameOverTitle.textContent = "КОНЕЦ ИГРЫ";
+                gameOverMessage.textContent = "Вы не смогли спасти Землю. Метеорит уничтожил всё живое...";
+            }
+            
+            gameOverScreen.style.display = "flex";
+        }
+        
+        // Запускаем игру
+        init();
+    </script>
+</body>
+</html>
